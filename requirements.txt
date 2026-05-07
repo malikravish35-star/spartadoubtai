@@ -1,5 +1,4 @@
-pyTelegramBotAPI
-google-generativeai>=0.5.2
 flask
-python-dotenv
-pillow
+openai
+requests
+gunicorn
