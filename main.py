@@ -1,74 +1,60 @@
 import os
-import telebot
+import requests
 import google.generativeai as genai
-from flask import Flask
-from threading import Thread
+from flask import Flask, request, jsonify
 
-# --- 1. RENDER WEB SERVER (PORT FIX) ---
-app = Flask('')
+# --- API & MODEL CONFIGURATION ---
+# Render dashboard me GEMINI_API_KEY set karein
+API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_KEY_HERE")
+genai.configure(api_key=API_KEY)
+
+# Model setup (v1beta ya 404 error se bachne ke liye standard name)
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+app = Flask(__name__)
+
+# --- CORE BOT LOGIC ---
 
 @app.route('/')
-def home():
-    return "Sparta Bot is Online!"
+def health_check():
+    return "Sparta Bot Status: Online & Running", 200
 
-def run():
-    # Render hamesha port 8080 ya 10000 ki demand karta hai
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# --- 2. BOT & GEMINI AI SETUP ---
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-GEMINI_KEY = os.getenv('GEMINI_KEY')
-
-# Transport='rest' lagane se 404/v1beta wala error solve ho jata hai
-genai.configure(api_key=GEMINI_KEY, transport='rest')
-
-# Stable model call
-model = genai.GenerativeModel('gemini-1.5-flash')
-bot = telebot.TeleBot(TOKEN)
-
-# --- 3. COMMANDS ---
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "WELCOME TO SPARTA BOT")
-
-# --- 4. MAIN LOGIC (TEXT + PHOTO) ---
-@bot.message_handler(content_types=['text', 'photo'])
-def handle_message(message):
+@app.route('/webhook', methods=['POST'])
+def telegram_webhook():
     try:
-        # Initial Analyzing Message
-        sent_msg = bot.reply_to(message, "🔍 **SPARTA ANALYZE...**", parse_mode='Markdown')
+        data = request.get_json()
         
-        if message.content_type == 'photo':
-            # Image download
-            file_info = bot.get_file(message.photo[-1].file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            # Image processing for Gemini
-            img_parts = [{"mime_type": "image/jpeg", "data": downloaded_file}]
-            prompt = message.caption if message.caption else "Solve this question step by step."
-            
-            # Response generation
-            response = model.generate_content([prompt, img_parts[0]])
-        else:
-            # Text processing
-            response = model.generate_content(message.text)
+        # Check if message exists in the data
+        if "message" in data:
+            chat_id = data["message"]["chat"]["id"]
+            user_text = data["message"].get("text", "")
 
-        # Final Formatting
-        final_answer = f"✨ **SPARTA ANALYZE** ✨\n\n{response.text}"
-        
-        # Answer ko edit karke bhejna
-        bot.edit_message_text(final_answer, chat_id=message.chat.id, message_id=sent_msg.message_id, parse_mode='Markdown')
+            # Gemini se response generate karna
+            if user_text:
+                gemini_resp = model.generate_content(user_text)
+                final_text = gemini_resp.text
+            else:
+                final_text = "Mujhe sirf text messages samajh aate hain."
 
+            # Yahan aap apna n8n ya Telegram API ka reply logic daal sakte hain
+            # Example: requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", ...)
+            
+        return jsonify({"status": "ok"}), 200
     except Exception as e:
-        # Error handling
-        bot.edit_message_text(f"❌ **Error:** {str(e)}", chat_id=message.chat.id, message_id=sent_msg.message_id)
+        print(f"Error occurred: {e}")
+        return jsonify({"error": str(e)}), 500
 
-# --- 5. RUN BOT ---
+# --- THE FIX FOR RENDER PORT BINDING ---
+# Ye wala part sabse important hai jo aapke logs me error de raha tha
 if __name__ == "__main__":
-    keep_alive() # Background server start
-    print("Sparta Bot is Starting...")
-    bot.infinity_polling()
+    # Render environment variable se port uthata hai
+    # Hardcoded 8080 ya 5000 se deployment fail ho sakti hai
+    port = int(os.environ.get("PORT", 8080))
+    
+    print("------------------------------")
+    print(f"🚀 Starting Sparta Bot...")
+    print(f"📡 Listening on Port: {port}")
+    print("------------------------------")
+    
+    # 0.0.0.0 host zaroori hai Render ke liye
+    app.run(host="0.0.0.0", port=port, debug=False)
