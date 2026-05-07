@@ -1,60 +1,59 @@
 import os
 import requests
-import google.generativeai as genai
 from flask import Flask, request, jsonify
+from openai import OpenAI
 
-# --- API & MODEL CONFIGURATION ---
-# Render dashboard me GEMINI_API_KEY set karein
-API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_KEY_HERE")
-genai.configure(api_key=API_KEY)
-
-# Model setup (v1beta ya 404 error se bachne ke liye standard name)
-model = genai.GenerativeModel('gemini-1.5-flash')
+# --- 1. CONFIGURATION ---
+# Render Dashboard -> Environment Variables mein OPENAI_API_KEY set karein
+# Ya fir niche "YOUR_OPENAI_KEY" ki jagah apni key daalein
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_KEY_HERE"))
 
 app = Flask(__name__)
 
-# --- CORE BOT LOGIC ---
+# --- 2. BOT LOGIC ---
 
 @app.route('/')
-def health_check():
-    return "Sparta Bot Status: Online & Running", 200
+def home():
+    return "Sparta Bot (OpenAI Version) is Running!", 200
 
 @app.route('/webhook', methods=['POST'])
-def telegram_webhook():
+def bot_webhook():
     try:
         data = request.get_json()
         
-        # Check if message exists in the data
+        # Telegram/n8n se aane wala message handle karna
         if "message" in data:
             chat_id = data["message"]["chat"]["id"]
             user_text = data["message"].get("text", "")
 
-            # Gemini se response generate karna
             if user_text:
-                gemini_resp = model.generate_content(user_text)
-                final_text = gemini_resp.text
+                # OpenAI API Call (GPT-3.5 or GPT-4o-mini)
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",  # Aap "gpt-3.5-turbo" bhi use kar sakte hain
+                    messages=[{"role": "user", "content": user_text}]
+                )
+                bot_reply = response.choices[0].message.content
             else:
-                final_text = "Mujhe sirf text messages samajh aate hain."
+                bot_reply = "Please send a text message."
 
-            # Yahan aap apna n8n ya Telegram API ka reply logic daal sakte hain
-            # Example: requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", ...)
-            
-        return jsonify({"status": "ok"}), 200
+            # Note: Yahan aap apni Telegram SendMessage API call add kar sakte hain
+            print(f"Chat ID: {chat_id} | Reply: {bot_reply}")
+
+        return jsonify({"status": "success"}), 200
     except Exception as e:
-        print(f"Error occurred: {e}")
+        print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# --- THE FIX FOR RENDER PORT BINDING ---
-# Ye wala part sabse important hai jo aapke logs me error de raha tha
+# --- 3. RENDER PORT FIX (CRITICAL) ---
 if __name__ == "__main__":
-    # Render environment variable se port uthata hai
-    # Hardcoded 8080 ya 5000 se deployment fail ho sakti hai
+    # Render hamesha 'PORT' variable provide karta hai. 
+    # Agar wo na mile toh 8080 default rahega.
     port = int(os.environ.get("PORT", 8080))
     
-    print("------------------------------")
-    print(f"🚀 Starting Sparta Bot...")
+    print("------------------------------------")
+    print(f"🚀 Sparta Bot Starting...")
     print(f"📡 Listening on Port: {port}")
-    print("------------------------------")
+    print("------------------------------------")
     
-    # 0.0.0.0 host zaroori hai Render ke liye
+    # host='0.0.0.0' Render ke liye mandatory hai
     app.run(host="0.0.0.0", port=port, debug=False)
